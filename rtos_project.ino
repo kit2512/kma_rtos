@@ -18,7 +18,7 @@
 #define commandcontrol_topic "control_house"
 #define MSG_BUFFER_SIZE (400)
 
-#define GAS_MIN 30
+#define GAS_MIN 40
 #define TEMP_MIN 35
 
 // define previous value
@@ -27,7 +27,7 @@ int prevTemperature = -1;
 int prevGas = -1;
 int prevDeviceStates[5] = { -1, -1, -1, -1, -1 };
 
-const char* Home_UID = "7f852382-6960-4a39-8aa6-b5d338432622";
+const char* Home_UID = "bLBfc49NjRdaehvzX8chWk";
 
 const char* Pump_UID = "P3Y4AMvaybNoDsP9rCXu9M";
 // relay 1 - fan
@@ -169,22 +169,58 @@ void Task2code(void* pvParameters) {
 
     // Create a JSON document
     StaticJsonDocument<400> doc;
-    doc["h"] = humidity;
-    doc["t"] = temperature;
-    doc["g"] = gas;
-    doc["h_id"] = Home_UID;
-    doc[Pump_UID] = digitalRead(Devide_01_PIN) == 1 ? 0 : 1;
-    doc[Led1_UID] = digitalRead(Devide_02_PIN) == 1 ? 0 : 1;
-    doc[Led2_UID] = digitalRead(Devide_03_PIN) == 1 ? 0 : 1;
-    doc[Led3_UID] = digitalRead(Devide_04_PIN) == 1 ? 0 : 1;
-    doc[Fan_UID] = digitalRead(Devide_05_PIN) == 1 ? 0 : 1;
+    if (humidity != prevHumidity)
+      doc["h"] = humidity;
+    if (temperature != prevTemperature)
+      doc["t"] = temperature;
+    if (gas != prevGas)
+      doc["g"] = gas;
+    // home_id
+    doc["i"] = Home_UID;
+
+    int pump_value = digitalRead(Devide_01_PIN);
+    if (pump_value != prevDeviceStates[0]) {
+      JsonObject pump_data = doc.createNestedObject(Pump_UID);
+      pump_data["v"] = pump_value;
+      pump_data["a"] = 0;
+    }
+
+
+    int led1_value = digitalRead(Devide_02_PIN);
+    if (led1_value != prevDeviceStates[1]) {
+      JsonObject led1_data = doc.createNestedObject(Led1_UID);
+      led1_data["v"] = led1_value;
+      led1_data["a"] = 0;
+    }
+
+    int led2_value = digitalRead(Devide_03_PIN);
+    if (led2_value != prevDeviceStates[2]) {
+      JsonObject led2_data = doc.createNestedObject(Led1_UID);
+      led2_data["v"] = led2_value;
+      led2_data["a"] = 1;
+    }
+
+    int led3_value = digitalRead(Devide_04_PIN);
+    if (led3_value != prevDeviceStates[3]) {
+      JsonObject led3_data = doc.createNestedObject(Led2_UID);
+      led3_data["v"] = led3_value;
+      led3_data["a"] = 0;
+    }
+
+    int fan_value = digitalRead(Devide_04_PIN);
+    if (fan_value != prevDeviceStates[4]) {
+      JsonObject fan_data = doc.createNestedObject(Fan_UID);
+      fan_data["v"] = fan_value;
+      fan_data["a"] = 0;
+    }
+    
 
     int deviceStates[5];
-    deviceStates[0] = doc[Pump_UID];
-    deviceStates[1] = doc[Led1_UID];
-    deviceStates[2] = doc[Led2_UID];
-    deviceStates[3] = doc[Led3_UID];
-    deviceStates[4] = doc[Fan_UID];
+    deviceStates[0] = pump_value;
+    deviceStates[1] = led1_value;
+    deviceStates[2] = led2_value;
+    deviceStates[3] = led3_value;
+    deviceStates[4] = fan_value;
 
     // Check if values have changed
     bool hasChanged = (humidity != prevHumidity) || (temperature != prevTemperature) || (gas != prevGas);
@@ -203,7 +239,7 @@ void Task2code(void* pvParameters) {
         prevDeviceStates[i] = deviceStates[i];
       }
       // Serialize JSON to string and print it
-      
+
       serializeJson(doc, msg);
       Serial.println("SEND DATA");
       Serial.println(msg);
@@ -277,7 +313,7 @@ void callback(char* topic, byte* message, unsigned int length) {
       messageTemp += (char)message[i];
     }
     Serial.println();
-    StaticJsonDocument<400> doc;
+    DynamicJsonDocument doc(400);
     DeserializationError error = deserializeJson(doc, messageTemp);
     // Test if parsing succeeds
     if (error) {
@@ -286,11 +322,27 @@ void callback(char* topic, byte* message, unsigned int length) {
       return;
     }
     // Extract values and print them
-    digitalWrite(Devide_01_PIN, int(doc[Pump_UID]));
-    digitalWrite(Devide_02_PIN, int(doc[Led1_UID]));
-    digitalWrite(Devide_03_PIN, int(doc[Led2_UID]));
-    digitalWrite(Devide_04_PIN, int(doc[Led3_UID]));
-    digitalWrite(Devide_05_PIN, int(doc[Fan_UID]));
+    int pump_value = doc[Pump_UID]["v"];
+    Serial.print("PUMP: ");
+    Serial.println(pump_value);
+    int led1_value = doc[Led1_UID]["v"];
+    Serial.print("LED1: ");
+    Serial.println(led1_value);
+    int led2_value = doc[Led2_UID]["v"];
+    Serial.print("LED2: ");
+    Serial.println(led2_value);
+    int led3_value = doc[Led3_UID]["v"];
+    Serial.print("LED3: ");
+    Serial.println(led3_value);
+    int fan_value = doc[Fan_UID]["v"];
+    Serial.print("FAN: ");
+    Serial.println(fan_value);
+    
+    digitalWrite(Devide_01_PIN, pump_value);
+    digitalWrite(Devide_02_PIN, led1_value);
+    digitalWrite(Devide_03_PIN, led2_value);
+    digitalWrite(Devide_04_PIN, led3_value);
+    digitalWrite(Devide_05_PIN, fan_value);
   }
 }
 
