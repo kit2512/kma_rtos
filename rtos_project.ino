@@ -15,7 +15,7 @@
 #define mqtt_password "Ohio@2022"
 #define mqtt_port 8883
 #define command1_topic "mqtt"
-#define commandcontrol_topic "control_house"
+#define commandcontrol_topic "control_house_bLBfc"
 #define MSG_BUFFER_SIZE (400)
 
 #define GAS_MIN 40
@@ -116,7 +116,6 @@ void reconnect();
 void setup_wifi();
 void setup_devide();
 void setupcore();
-
 
 
 
@@ -394,11 +393,6 @@ int readTemperature() {
   if (isnan(t)) {
     Serial.println(F("Failed to read temperature from DHT sensor!"));
     return NAN;
-  }
-  if (t > TEMP_MIN) {
-    digitalWrite(BUZZ_PIN, 0);
-  } else {
-    digitalWrite(BUZZ_PIN, 1);
   }
   return (int)t;
 }
