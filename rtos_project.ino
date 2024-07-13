@@ -7,8 +7,8 @@
 #include <ArduinoJson.h>
 
 //Define WiFi
-#define ssid "MERCUSYS_3130"
-#define password "72898789"
+#define ssid "Phong 107"
+#define password "12345679"
 
 #define mqtt_server "1ca9ad83643c4e22b4a2f8e80836f03c.s1.eu.hivemq.cloud"
 #define mqtt_username "kit2512"
@@ -16,7 +16,7 @@
 #define mqtt_port 8883
 #define command1_topic "mqtt"
 #define commandcontrol_topic "control_house_bLBfc"
-#define MSG_BUFFER_SIZE (400)
+#define MSG_BUFFER_SIZE 4000
 
 #define GAS_MIN 40
 #define TEMP_MIN 35
@@ -25,24 +25,26 @@
 int prevHumidity = -1;
 int prevTemperature = -1;
 int prevGas = -1;
-int prevDeviceStates[5] = { -1, -1, -1, -1, -1 };
+int prevMode = -1;
+int humanDetect = -1;
+int prevDeviceStates[6] = { -1, -1, -1, -1, -1, -1 };
 
 const char* Home_UID = "bLBfc49NjRdaehvzX8chWk";
 
-const char* Pump_UID = "P3Y4AMvaybNoDsP9rCXu9M";
+const char* Pump_UID = "P3Y4A";
 // relay 1 - fan
 #define Devide_01_PIN 12
 // relay 2
-const char* Led1_UID = "RPTzKmzobMciYX7Vstk7m6";
+const char* Led1_UID = "RPTzK";
 #define Devide_02_PIN 14
 
-const char* Led2_UID = "YSLYa9hxyjbrAKW2NMFTW5";
+const char* Led2_UID = "YSLYa";
 #define Devide_03_PIN 27
 
-const char* Led3_UID = "5BAWsxvuUcUQKcaZ6FS6Tt";
+const char* Led3_UID = "5BAWs";
 #define Devide_04_PIN 26
 
-const char* Fan_UID = "YtPUWBquvbvc4ahaDv2P4w";
+const char* Fan_UID = "YtPUW";
 #define Devide_05_PIN 25
 
 const int devidePin[] = { 12, 14, 27, 26, 25 };
@@ -54,6 +56,8 @@ const int numdevide = sizeof(devidePin) / sizeof(devidePin[0]);
 /* Gas Sensor Pin */
 #define AO_PIN 35
 #define BUZZ_PIN 32
+#define HUMAN_SENSOR 16
+#define MODE_BUTTON 17
 
 DHT dht(DHTPIN, DHTTYPE);
 
@@ -97,7 +101,11 @@ emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=
 // DUAL CORE SETUP
 TaskHandle_t Task1;
 TaskHandle_t Task2;
-
+TaskHandle_t Task3;
+TaskHandle_t Task4;
+int lastButtonState = LOW;
+int mode = 0;
+int auto_server = -1;
 
 // Declare Variable
 WiFiClientSecure espClient;
@@ -131,6 +139,7 @@ void setup() {
   dht.begin();
 
   pinMode(BUZZ_PIN, OUTPUT_OPEN_DRAIN);
+  pinMode(HUMAN_SENSOR, INPUT);
 
   digitalWrite(BUZZ_PIN, 1);
 }
@@ -147,7 +156,44 @@ void Task1code(void* pvParameters) {
   for (;;) {
     if (!client.connected()) reconnect();
     client.loop();
-    delay(500);
+    vTaskDelay(500);
+  }
+}
+//Task3code:
+void Task3code(void* pvParameters) {
+  Serial.print("Task3 running on core ");
+  Serial.println(xPortGetCoreID());
+
+  for (;;) {
+    int pirState = digitalRead(HUMAN_SENSOR);
+    if (auto_server == 0)
+      if (pirState == HIGH) {
+        digitalWrite(Devide_02_PIN, 0);
+      } else {
+        digitalWrite(Devide_02_PIN, 1);
+      }
+    vTaskDelay(200);
+  }
+}
+//Task4code:
+void Task4code(void* pvParameters) {
+  Serial.print("Task4 running on core ");
+  Serial.println(xPortGetCoreID());
+
+  for (;;) {
+    int buttonState = digitalRead(MODE_BUTTON);
+
+    // Detect transition from LOW to HIGH
+    if (lastButtonState == LOW && buttonState == HIGH) {
+      mode = !mode;
+      Serial.print("Button detected! ");  // Display message when button state changes from LOW to HIGH
+      Serial.println(mode);
+    }
+
+    // Save the current button state as the last state for next iteration
+    lastButtonState = buttonState;
+
+    vTaskDelay(200);  // Task delay in milliseconds
   }
 }
 
@@ -167,7 +213,7 @@ void Task2code(void* pvParameters) {
     }
 
     // Create a JSON document
-    StaticJsonDocument<400> doc;
+    StaticJsonDocument<1000> doc;
     if (humidity != prevHumidity)
       doc["h"] = humidity;
     if (temperature != prevTemperature)
@@ -178,52 +224,53 @@ void Task2code(void* pvParameters) {
     doc["i"] = Home_UID;
 
     int pump_value = digitalRead(Devide_01_PIN);
-    if (pump_value != prevDeviceStates[0]) {
+    if ((pump_value != prevDeviceStates[0])) {
       JsonObject pump_data = doc.createNestedObject(Pump_UID);
       pump_data["v"] = pump_value;
-      pump_data["a"] = 0;
+      pump_data["a"] = mode;
     }
 
 
     int led1_value = digitalRead(Devide_02_PIN);
-    if (led1_value != prevDeviceStates[1]) {
+    if ((led1_value != prevDeviceStates[1]) || (mode != prevDeviceStates[5])) {
       JsonObject led1_data = doc.createNestedObject(Led1_UID);
       led1_data["v"] = led1_value;
-      led1_data["a"] = 0;
+      led1_data["a"] = mode;
     }
 
     int led2_value = digitalRead(Devide_03_PIN);
-    if (led2_value != prevDeviceStates[2]) {
+    if ((led2_value != prevDeviceStates[2])) {
       JsonObject led2_data = doc.createNestedObject(Led1_UID);
       led2_data["v"] = led2_value;
-      led2_data["a"] = 1;
+      led2_data["a"] = mode;
     }
 
     int led3_value = digitalRead(Devide_04_PIN);
-    if (led3_value != prevDeviceStates[3]) {
+    if ((led3_value != prevDeviceStates[3])) {
       JsonObject led3_data = doc.createNestedObject(Led2_UID);
       led3_data["v"] = led3_value;
-      led3_data["a"] = 0;
+      led3_data["a"] = mode;
     }
 
     int fan_value = digitalRead(Devide_04_PIN);
-    if (fan_value != prevDeviceStates[4]) {
+    if ((fan_value != prevDeviceStates[4])) {
       JsonObject fan_data = doc.createNestedObject(Fan_UID);
       fan_data["v"] = fan_value;
-      fan_data["a"] = 0;
+      fan_data["a"] = mode;
     }
-    
 
-    int deviceStates[5];
+
+    int deviceStates[6];
     deviceStates[0] = pump_value;
     deviceStates[1] = led1_value;
     deviceStates[2] = led2_value;
     deviceStates[3] = led3_value;
     deviceStates[4] = fan_value;
+    deviceStates[5] = mode;
 
     // Check if values have changed
-    bool hasChanged = (humidity != prevHumidity) || (temperature != prevTemperature) || (gas != prevGas);
-    for (int i = 0; i < 5; i++) {
+    bool hasChanged = (humidity != prevHumidity) || (temperature != prevTemperature) || (gas != prevGas) || (mode != prevMode);
+    for (int i = 0; i < 6; i++) {
       if (deviceStates[i] != prevDeviceStates[i]) {
         hasChanged = true;
         break;
@@ -234,17 +281,18 @@ void Task2code(void* pvParameters) {
       prevHumidity = humidity;
       prevTemperature = temperature;
       prevGas = gas;
-      for (int i = 0; i < 5; i++) {
+      prevMode = mode;
+      for (int i = 0; i < 6; i++) {
         prevDeviceStates[i] = deviceStates[i];
       }
       // Serialize JSON to string and print it
 
       serializeJson(doc, msg);
-      Serial.println("SEND DATA");
-      Serial.println(msg);
+      // Serial.println("SEND DATA");
+      // Serial.println(msg);
       publishMessage(command1_topic, msg, true);
     }
-    delay(1000);
+    vTaskDelay(1000);
   }
 }
 /*=========================================================================================*/
@@ -270,6 +318,25 @@ void setupcore() {
     1,         /* priority of the task */
     &Task2,    /* Task handle to keep track of created task */
     1);        /* pin task to core 1 */
+  vTaskDelay(500);
+  //create a task that will be executed in the Task2code() function, with priority 1 and executed on core 1
+  xTaskCreatePinnedToCore(
+    Task3code, /* Task function. */
+    "Task3",   /* name of task. */
+    10000,     /* Stack size of task */
+    NULL,      /* parameter of the task */
+    1,         /* priority of the task */
+    &Task3,    /* Task handle to keep track of created task */
+    1);        /* pin task to core 1 */
+  vTaskDelay(500);
+  xTaskCreatePinnedToCore(
+    Task4code, /* Task function. */
+    "Task4",   /* name of task. */
+    10000,     /* Stack size of task */
+    NULL,      /* parameter of the task */
+    1,         /* priority of the task */
+    &Task4,    /* Task handle to keep track of created task */
+    0);        /* pin task to core 1 */
   vTaskDelay(500);
 }
 
@@ -308,11 +375,12 @@ void callback(char* topic, byte* message, unsigned int length) {
     String messageTemp;
 
     for (int i = 0; i < length; i++) {
-      Serial.print((char)message[i]);
+      // Serial.print((char)message[i]);
       messageTemp += (char)message[i];
     }
-    Serial.println();
-    DynamicJsonDocument doc(400);
+
+    Serial.println(messageTemp);
+    DynamicJsonDocument doc(2000);
     DeserializationError error = deserializeJson(doc, messageTemp);
     // Test if parsing succeeds
     if (error) {
@@ -321,27 +389,78 @@ void callback(char* topic, byte* message, unsigned int length) {
       return;
     }
     // Extract values and print them
-    int pump_value = doc[Pump_UID]["v"];
-    Serial.print("PUMP: ");
-    Serial.println(pump_value);
-    int led1_value = doc[Led1_UID]["v"];
-    Serial.print("LED1: ");
-    Serial.println(led1_value);
-    int led2_value = doc[Led2_UID]["v"];
-    Serial.print("LED2: ");
-    Serial.println(led2_value);
-    int led3_value = doc[Led3_UID]["v"];
-    Serial.print("LED3: ");
-    Serial.println(led3_value);
-    int fan_value = doc[Fan_UID]["v"];
-    Serial.print("FAN: ");
-    Serial.println(fan_value);
-    
-    digitalWrite(Devide_01_PIN, pump_value);
-    digitalWrite(Devide_02_PIN, led1_value);
-    digitalWrite(Devide_03_PIN, led2_value);
-    digitalWrite(Devide_04_PIN, led3_value);
-    digitalWrite(Devide_05_PIN, fan_value);
+    // Iterate through the JSON object
+    for (JsonPair kv : doc.as<JsonObject>()) {
+      const char* key = kv.key().c_str();
+      int v = kv.value()["v"];
+      int a = kv.value()["a"];
+      if (strcmp(key, Led1_UID) == 0) {
+        Serial.print("LED 1 ");
+        Serial.print("v: ");
+        Serial.print(v);
+        Serial.print(", a: ");
+        Serial.println(a);
+        if (a == 0) {
+          auto_server = 0;
+
+          digitalWrite(Devide_02_PIN, 1);
+          Serial.println("AUTO DETECTED ON ");
+        } else {
+          auto_server = 1;
+          Serial.println("AUTO DETECTED OFF");
+        }
+        digitalWrite(Devide_02_PIN, v);
+      }
+      if (strcmp(key, Pump_UID) == 0) {
+        Serial.print("Pump 1 ");
+        Serial.print("v: ");
+        Serial.print(v);
+        Serial.print(", a: ");
+        Serial.println(a);
+        if (a == 0) {
+          // Serial.println("AUTO DETECTED ");
+        }
+        digitalWrite(Devide_01_PIN, v);
+      }
+      if (strcmp(key, Led2_UID) == 0) {
+        Serial.print("LED 2 ");
+        Serial.print("v: ");
+        Serial.print(v);
+        Serial.print(", a: ");
+        Serial.println(a);
+        if (a == 0) {
+          // Serial.println("AUTO DETECTED ");
+        }
+        digitalWrite(Devide_03_PIN, v);
+      }
+      if (strcmp(key, Led3_UID) == 0) {
+        Serial.print("LED 3");
+        Serial.print(" v: ");
+        Serial.print(v);
+        Serial.print(", a: ");
+        Serial.println(a);
+        if (a == 0) {
+          // Serial.println("AUTO DETECTED ");
+        }
+        digitalWrite(Devide_04_PIN, v);
+      }
+      if (strcmp(key, Fan_UID) == 0) {
+        Serial.print("FAN ");
+        Serial.print("v: ");
+        Serial.print(v);
+        Serial.print(", a: ");
+        Serial.println(a);
+        if (a == 0) {
+          // Serial.println("AUTO DETECTED ");
+        }
+        digitalWrite(Devide_05_PIN, v);
+      }
+    }
+
+    // digitalWrite(Devide_01_PIN, pump_value);
+    // digitalWrite(, );
+    // digitalWrite(Devide_04_PIN, led3_value);
+    // digitalWrite(Devide_05_PIN, fan_value);
   }
 }
 
@@ -369,7 +488,7 @@ void reconnect() {
       Serial.print("failed, rc=");
       Serial.print(client.state());
       Serial.println(" try again in 5 seconds");  // Wait 5 seconds before retrying
-      delay(5000);
+      vTaskDelay(5000);
     }
   }
 }
