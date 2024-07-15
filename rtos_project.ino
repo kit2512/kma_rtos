@@ -7,8 +7,8 @@
 #include <ArduinoJson.h>
 
 //Define WiFi
-#define ssid "MERCUSYS_3130"
-#define password "72898789"
+#define ssid "test"
+#define password "12345678"
 
 #define mqtt_server "1ca9ad83643c4e22b4a2f8e80836f03c.s1.eu.hivemq.cloud"
 #define mqtt_username "kit2512"
@@ -29,6 +29,8 @@ int prevGas = -1;
 int prevMode = -1;
 int humanDetect = -1;
 int prevDeviceStates[6] = { -1, -1, -1, -1, -1, -1 };
+
+SemaphoreHandle_t xSemaphore;
 
 const char* Home_UID = "bLBfc";
 
@@ -135,6 +137,11 @@ void setup() {
   client.setServer(mqtt_server, mqtt_port);
   client.setCallback(callback);
   client.subscribe(commandcontrol_topic);
+
+  // Khởi tạo Semaphore
+  xSemaphore = xSemaphoreCreateBinary();
+  xSemaphoreGive(xSemaphore);  // Khởi đầu semaphore ở trạng thái "được nhận"
+
   setupcore();
   setup_devide();
   dht.begin();
@@ -205,96 +212,94 @@ void Task2code(void* pvParameters) {
   Serial.println(xPortGetCoreID());
 
   for (;;) {
+    if (xSemaphoreTake(xSemaphore, portMAX_DELAY) == pdTRUE) {
+      int humidity = readHumidity();
+      int temperature = readTemperature();
+      int gas = convertToPercentage();
 
-    int humidity = readHumidity();
-    int temperature = readTemperature();
-    int gas = convertToPercentage();
-
-    if (isnan(humidity) || isnan(temperature)) {
-      Serial.println(F("Failed to read from DHT sensor!"));
-    }
-
-    // Create a JSON document
-    StaticJsonDocument<1000> doc;
-    if (humidity != prevHumidity)
-      doc["h"] = humidity;
-    if (temperature != prevTemperature)
-      doc["t"] = temperature;
-    if (gas != prevGas)
-      doc["g"] = gas;
-    // home_id
-    doc["i"] = Home_UID;
-
-    int pump_value = digitalRead(Devide_01_PIN);
-    if ((pump_value != prevDeviceStates[0])) {
-      JsonObject pump_data = doc.createNestedObject(Pump_UID);
-      pump_data["v"] = pump_value;
-      pump_data["a"] = mode;
-    }
-
-
-    int led1_value = digitalRead(Devide_02_PIN);
-    if ((led1_value != prevDeviceStates[1]) || (mode != prevDeviceStates[5])) {
-      JsonObject led1_data = doc.createNestedObject(Led1_UID);
-      led1_data["v"] = led1_value;
-      led1_data["a"] = mode;
-    }
-
-    int led2_value = digitalRead(Devide_03_PIN);
-    if ((led2_value != prevDeviceStates[2])) {
-      JsonObject led2_data = doc.createNestedObject(Led1_UID);
-      led2_data["v"] = led2_value;
-      led2_data["a"] = mode;
-    }
-
-    int led3_value = digitalRead(Devide_04_PIN);
-    if ((led3_value != prevDeviceStates[3])) {
-      JsonObject led3_data = doc.createNestedObject(Led2_UID);
-      led3_data["v"] = led3_value;
-      led3_data["a"] = mode;
-    }
-
-    int fan_value = digitalRead(Devide_04_PIN);
-    if ((fan_value != prevDeviceStates[4])) {
-      JsonObject fan_data = doc.createNestedObject(Fan_UID);
-      fan_data["v"] = fan_value;
-      fan_data["a"] = mode;
-    }
-
-
-    int deviceStates[6];
-    deviceStates[0] = pump_value;
-    deviceStates[1] = led1_value;
-    deviceStates[2] = led2_value;
-    deviceStates[3] = led3_value;
-    deviceStates[4] = fan_value;
-    deviceStates[5] = mode;
-
-    // Check if values have changed
-    bool hasChanged = (humidity != prevHumidity) || (temperature != prevTemperature) || (gas != prevGas) || (mode != prevMode);
-    for (int i = 0; i < 6; i++) {
-      if (deviceStates[i] != prevDeviceStates[i]) {
-        hasChanged = true;
-        break;
+      if (isnan(humidity) || isnan(temperature)) {
+        Serial.println(F("Failed to read from DHT sensor!"));
       }
-    }
 
-    if (hasChanged) {
-      prevHumidity = humidity;
-      prevTemperature = temperature;
-      prevGas = gas;
-      prevMode = mode;
+      // Create a JSON document
+      StaticJsonDocument<1000> doc;
+      if (humidity != prevHumidity)
+        doc["h"] = humidity;
+      if (temperature != prevTemperature)
+        doc["t"] = temperature;
+      if (gas != prevGas)
+        doc["g"] = gas;
+      // home_id
+      doc["i"] = Home_UID;
+
+      int pump_value = digitalRead(Devide_01_PIN);
+      if ((pump_value != prevDeviceStates[0])) {
+        JsonObject pump_data = doc.createNestedObject(Pump_UID);
+        pump_data["v"] = pump_value;
+      }
+
+
+      int led1_value = digitalRead(Devide_02_PIN);
+      if ((led1_value != prevDeviceStates[1]) || (mode != prevDeviceStates[5])) {
+        JsonObject led1_data = doc.createNestedObject(Led1_UID);
+        led1_data["v"] = led1_value;
+        led1_data["a"] = auto_server;
+      }
+
+      int led2_value = digitalRead(Devide_03_PIN);
+      if ((led2_value != prevDeviceStates[2])) {
+        JsonObject led2_data = doc.createNestedObject(Led1_UID);
+        led2_data["v"] = led2_value;
+      }
+
+      int led3_value = digitalRead(Devide_04_PIN);
+      if ((led3_value != prevDeviceStates[3])) {
+        JsonObject led3_data = doc.createNestedObject(Led2_UID);
+        led3_data["v"] = led3_value;
+      }
+
+      int fan_value = digitalRead(Devide_04_PIN);
+      if ((fan_value != prevDeviceStates[4])) {
+        JsonObject fan_data = doc.createNestedObject(Fan_UID);
+        fan_data["v"] = fan_value;
+      }
+
+
+      int deviceStates[6];
+      deviceStates[0] = pump_value;
+      deviceStates[1] = led1_value;
+      deviceStates[2] = led2_value;
+      deviceStates[3] = led3_value;
+      deviceStates[4] = fan_value;
+      deviceStates[5] = mode;
+
+      // Check if values have changed
+      bool hasChanged = (humidity != prevHumidity) || (temperature != prevTemperature) || (gas != prevGas) || (mode != prevMode);
       for (int i = 0; i < 6; i++) {
-        prevDeviceStates[i] = deviceStates[i];
+        if (deviceStates[i] != prevDeviceStates[i]) {
+          hasChanged = true;
+          break;
+        }
       }
-      // Serialize JSON to string and print it
 
-      serializeJson(doc, msg);
-      Serial.println("SEND DATA");
-      Serial.println(msg);
-      publishMessage(command1_topic, msg, true);
+      if (hasChanged) {
+        prevHumidity = humidity;
+        prevTemperature = temperature;
+        prevGas = gas;
+        prevMode = auto_server;
+        for (int i = 0; i < 6; i++) {
+          prevDeviceStates[i] = deviceStates[i];
+        }
+        // Serialize JSON to string and print it
+
+        serializeJson(doc, msg);
+        Serial.println("SEND DATA");
+        Serial.println(msg);
+        publishMessage(command1_topic, msg, true);
+      }
+      vTaskDelay(1000);
+      xSemaphoreGive(xSemaphore);
     }
-    vTaskDelay(1000);
   }
 }
 /*=========================================================================================*/
@@ -370,99 +375,102 @@ void setup_devide() {
 }
 /*=========================================================================================*/
 void callback(char* topic, byte* message, unsigned int length) {
-  if (strcmp(topic, commandcontrol_topic) == 0) {
-    Serial.print("Message arrived on topic: ");
-    Serial.print(topic);
-    Serial.print(". Message: ");
-    String messageTemp;
+  if (xSemaphoreTake(xSemaphore, portMAX_DELAY) == pdTRUE) {
+    if (strcmp(topic, commandcontrol_topic) == 0) {
+      Serial.print("Message arrived on topic: ");
+      Serial.print(topic);
+      Serial.print(". Message: ");
+      String messageTemp;
 
-    for (int i = 0; i < length; i++) {
-      // Serial.print((char)message[i]);
-      messageTemp += (char)message[i];
-    }
+      for (int i = 0; i < length; i++) {
+        // Serial.print((char)message[i]);
+        messageTemp += (char)message[i];
+      }
 
-    Serial.println(messageTemp);
-    DynamicJsonDocument doc(2000);
-    DeserializationError error = deserializeJson(doc, messageTemp);
-    // Test if parsing succeeds
-    if (error) {
-      Serial.print(F("deserializeJson() failed: "));
-      Serial.println(error.f_str());
-      return;
-    }
-    // Extract values and print them
-    // Iterate through the JSON object
-    for (JsonPair kv : doc.as<JsonObject>()) {
-      const char* key = kv.key().c_str();
-      int v = kv.value()["v"];
-      int a = kv.value()["a"];
-      if (strcmp(key, Led1_UID) == 0) {
-        Serial.print("LED 1 ");
-        Serial.print("v: ");
-        Serial.print(v);
-        Serial.print(", a: ");
-        Serial.println(a);
-        if (a == 1) {
-          auto_server = 1;
+      Serial.println(messageTemp);
+      DynamicJsonDocument doc(2000);
+      DeserializationError error = deserializeJson(doc, messageTemp);
+      // Test if parsing succeeds
+      if (error) {
+        Serial.print(F("deserializeJson() failed: "));
+        Serial.println(error.f_str());
+        return;
+      }
+      // Extract values and print them
+      // Iterate through the JSON object
+      for (JsonPair kv : doc.as<JsonObject>()) {
+        const char* key = kv.key().c_str();
+        int v = kv.value()["v"];
+        int a = kv.value()["a"];
+        if (strcmp(key, Led1_UID) == 0) {
+          Serial.print("LED 1 ");
+          Serial.print("v: ");
+          Serial.print(v);
+          Serial.print(", a: ");
+          Serial.println(a);
+          if (a == 1) {
+            auto_server = 1;
+            digitalWrite(Devide_02_PIN, v);
+            Serial.println("AUTO DETECTED ON ");
+          } else {
+            auto_server = 0;
+            digitalWrite(Devide_02_PIN, v);
+            Serial.println("AUTO DETECTED OFF");
+          }
           digitalWrite(Devide_02_PIN, v);
-          Serial.println("AUTO DETECTED ON ");
-        } else {
-          auto_server = 0;
-          digitalWrite(Devide_02_PIN, v);
-          Serial.println("AUTO DETECTED OFF");
         }
-        digitalWrite(Devide_02_PIN, v);
-      }
-      if (strcmp(key, Pump_UID) == 0) {
-        Serial.print("Pump 1 ");
-        Serial.print("v: ");
-        Serial.print(v);
-        Serial.print(", a: ");
-        Serial.println(a);
-        if (a == 0) {
-          // Serial.println("AUTO DETECTED ");
+        if (strcmp(key, Pump_UID) == 0) {
+          Serial.print("Pump 1 ");
+          Serial.print("v: ");
+          Serial.print(v);
+          Serial.print(", a: ");
+          Serial.println(a);
+          if (a == 0) {
+            // Serial.println("AUTO DETECTED ");
+          }
+          digitalWrite(Devide_01_PIN, v);
         }
-        digitalWrite(Devide_01_PIN, v);
-      }
-      if (strcmp(key, Led2_UID) == 0) {
-        Serial.print("LED 2 ");
-        Serial.print("v: ");
-        Serial.print(v);
-        Serial.print(", a: ");
-        Serial.println(a);
-        if (a == 0) {
-          // Serial.println("AUTO DETECTED ");
+        if (strcmp(key, Led2_UID) == 0) {
+          Serial.print("LED 2 ");
+          Serial.print("v: ");
+          Serial.print(v);
+          Serial.print(", a: ");
+          Serial.println(a);
+          if (a == 0) {
+            // Serial.println("AUTO DETECTED ");
+          }
+          digitalWrite(Devide_03_PIN, v);
         }
-        digitalWrite(Devide_03_PIN, v);
-      }
-      if (strcmp(key, Led3_UID) == 0) {
-        Serial.print("LED 3");
-        Serial.print(" v: ");
-        Serial.print(v);
-        Serial.print(", a: ");
-        Serial.println(a);
-        if (a == 0) {
-          // Serial.println("AUTO DETECTED ");
+        if (strcmp(key, Led3_UID) == 0) {
+          Serial.print("LED 3");
+          Serial.print(" v: ");
+          Serial.print(v);
+          Serial.print(", a: ");
+          Serial.println(a);
+          if (a == 0) {
+            // Serial.println("AUTO DETECTED ");
+          }
+          digitalWrite(Devide_04_PIN, v);
         }
-        digitalWrite(Devide_04_PIN, v);
-      }
-      if (strcmp(key, Fan_UID) == 0) {
-        Serial.print("FAN ");
-        Serial.print("v: ");
-        Serial.print(v);
-        Serial.print(", a: ");
-        Serial.println(a);
-        if (a == 0) {
-          // Serial.println("AUTO DETECTED ");
+        if (strcmp(key, Fan_UID) == 0) {
+          Serial.print("FAN ");
+          Serial.print("v: ");
+          Serial.print(v);
+          Serial.print(", a: ");
+          Serial.println(a);
+          if (a == 0) {
+            // Serial.println("AUTO DETECTED ");
+          }
+          digitalWrite(Devide_05_PIN, v);
         }
-        digitalWrite(Devide_05_PIN, v);
       }
-    }
 
-    // digitalWrite(Devide_01_PIN, pump_value);
-    // digitalWrite(, );
-    // digitalWrite(Devide_04_PIN, led3_value);
-    // digitalWrite(Devide_05_PIN, fan_value);
+      // digitalWrite(Devide_01_PIN, pump_value);
+      // digitalWrite(, );
+      // digitalWrite(Devide_04_PIN, led3_value);
+      // digitalWrite(Devide_05_PIN, fan_value);
+    }
+    xSemaphoreGive(xSemaphore);
   }
 }
 
@@ -482,7 +490,6 @@ void reconnect() {
     // Attempt to connect
     if (client.connect(clientId.c_str(), mqtt_username, mqtt_password)) {
       Serial.println("connected");
-      publishMessage()
       client.subscribe(command1_topic);        // subscribe the topics here
       client.subscribe(commandcontrol_topic);  // subscribe the topics here
 
